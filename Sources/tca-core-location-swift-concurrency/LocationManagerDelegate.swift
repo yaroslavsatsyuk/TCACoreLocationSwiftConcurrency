@@ -7,7 +7,7 @@
 
 import CoreLocation
 
-private class LocationManagerDelegate: NSObject, CLLocationManagerDelegate {
+class LocationManagerDelegate: NSObject, CLLocationManagerDelegate {
     let continuation: AsyncStream<LocationManagerClient.Action>.Continuation
     
     init(continuation: AsyncStream<LocationManagerClient.Action>.Continuation) {
