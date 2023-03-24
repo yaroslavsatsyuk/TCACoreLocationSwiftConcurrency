@@ -1,3 +1,3 @@
-# tca-core-location-swift-concurrency
+# TCACoreLocationSwiftConcurrency
 
-A description of this package.
+Composable Core Location with Swift Concurrency
