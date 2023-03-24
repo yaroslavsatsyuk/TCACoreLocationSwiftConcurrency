@@ -7,7 +7,7 @@
 
 import CoreLocation
 
-public struct LocationManager {
+public struct LocationManagerClient {
     public enum Action: Equatable {
         case didChangeAuthorization(CLAuthorizationStatus)
         case didDetermineState(CLRegionState, region: Region)
@@ -42,10 +42,11 @@ public struct LocationManager {
     public var startUpdatingLocation: @Sendable () async -> Void
     public var stopUpdatingLocation: @Sendable () async -> Void
     public var monitoredRegions: () -> Set<Region>
+    public var startMonitoringForRegion: @Sendable (Region) async -> Void
     public var stopMonitoringForRegion: @Sendable (Region) async -> Void
-    public var set: @Sendable (LocationManager.Properties) async -> Void
+    public var setProperties: @Sendable (LocationManagerClient.Properties) async -> Void
     
-    @Sendable public func set(
+    @Sendable public func setProperties(
         activityType: CLActivityType? = nil,
         allowsBackgroundLocationUpdates: Bool? = nil,
         desiredAccuracy: CLLocationAccuracy? = nil,
@@ -55,7 +56,7 @@ public struct LocationManager {
         pausesLocationUpdatesAutomatically: Bool? = nil,
         showsBackgroundLocationIndicator: Bool? = nil
     ) async {
-        await self.set(
+        await self.setProperties(
             Properties(
                 activityType: activityType,
                 allowsBackgroundLocationUpdates: allowsBackgroundLocationUpdates,
@@ -68,7 +69,7 @@ public struct LocationManager {
     }
 }
 
-public extension LocationManager {
+public extension LocationManagerClient {
     struct Properties: Equatable {
         var activityType: CLActivityType? = nil
         var allowsBackgroundLocationUpdates: Bool? = nil
@@ -96,20 +97,95 @@ public extension LocationManager {
 }
 
 
+extension LocationManagerClient {
+    public static var live: LocationManagerClient {
+        let manager = CLLocationManager()
+        
+        return LocationManagerClient(
+            accuracyAuthorization: { AccuracyAuthorization(manager.accuracyAuthorization) },
+            authorizationStatus: { manager.authorizationStatus },
+            delegate: {
+                AsyncStream { continuation in
+                    let delegate = LocationManagerDelegate(continuation: continuation)
+                    manager.delegate = delegate
+                    continuation.onTermination = { [delegate] _ in
+                        _ = delegate
+                    }
+                }
+            },
+            location: { manager.location.map(Location.init(rawValue:)) },
+            locationServicesEnabled: CLLocationManager.locationServicesEnabled,
+            requestAlwaysAuthorization: { manager.requestAlwaysAuthorization() },
+            requestWhenInUseAuthorization: { manager.requestWhenInUseAuthorization()  },
+            requestTemporaryFullAccuracyAuthorization: { purposeKey in
+                try await withCheckedThrowingContinuation { continuation in
+                    manager.requestTemporaryFullAccuracyAuthorization(
+                        withPurposeKey: purposeKey
+                    ) { error in
+                        if let error = error {
+                            continuation.resume(throwing: error)
+                        } else {
+                            continuation.resume()
+                        }
+                    }
+                }
+            },
+            requestLocation: { manager.requestLocation() },
+            startUpdatingLocation: { manager.startUpdatingLocation() },
+            stopUpdatingLocation: { manager.stopUpdatingLocation() },
+            monitoredRegions: {
+                Set(manager.monitoredRegions.map(Region.init(rawValue:)))
+            },
+            startMonitoringForRegion: { region in
+                manager.startMonitoring(for: region.rawValue!)
+            },
+            stopMonitoringForRegion: { region in
+                manager.stopMonitoring(for: region.rawValue!)
+            },
+            setProperties: { properties in
+                if let activityType = properties.activityType {
+                    manager.activityType = activityType
+                }
+                
+                if let allowsBackgroundLocationUpdates = properties.allowsBackgroundLocationUpdates {
+                    manager.allowsBackgroundLocationUpdates = allowsBackgroundLocationUpdates
+                }
+                
+                if let desiredAccuracy = properties.desiredAccuracy {
+                    manager.desiredAccuracy = desiredAccuracy
+                }
+                
+                if let distanceFilter = properties.distanceFilter {
+                    manager.distanceFilter = distanceFilter
+                }
+                
+                if let pausesLocationUpdatesAutomatically = properties.pausesLocationUpdatesAutomatically {
+                    manager.pausesLocationUpdatesAutomatically = pausesLocationUpdatesAutomatically
+                }
+                
+                if let showsBackgroundLocationIndicator = properties.showsBackgroundLocationIndicator {
+                    manager.showsBackgroundLocationIndicator = showsBackgroundLocationIndicator
+                }
+            }
+        )
+    }
+}
+
 private class LocationManagerDelegate: NSObject, CLLocationManagerDelegate {
-    let continuation: AsyncStream<LocationManager.Action>.Continuation
+    let continuation: AsyncStream<LocationManagerClient.Action>.Continuation
     
-    init(continuation: AsyncStream<LocationManager.Action>.Continuation) {
+    init(continuation: AsyncStream<LocationManagerClient.Action>.Continuation) {
         self.continuation = continuation
     }
     
-    func locationManager(_ manager: CLLocationManager, didChangeAuthorization status: CLAuthorizationStatus
+    func locationManager(
+        _ manager: CLLocationManager, didChangeAuthorization status: CLAuthorizationStatus
     ) {
         self.continuation.yield(.didChangeAuthorization(status))
     }
     
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        self.continuation.yield(.didFailWithError(LocationManager.Error(error)))
+        self.continuation.yield(.didFailWithError(LocationManagerClient.Error(error)))
     }
     
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
@@ -119,14 +195,13 @@ private class LocationManagerDelegate: NSObject, CLLocationManagerDelegate {
     func locationManager(_ manager: CLLocationManager, didFinishDeferredUpdatesWithError error: Error?
     ) {
         self.continuation.yield(
-            .didFinishDeferredUpdatesWithError(error.map(LocationManager.Error.init))
+            .didFinishDeferredUpdatesWithError(error.map(LocationManagerClient.Error.init))
         )
     }
     
     func locationManagerDidPauseLocationUpdates(_ manager: CLLocationManager) {
         self.continuation.yield(.didPauseLocationUpdates)
     }
-    
     
     func locationManagerDidResumeLocationUpdates(_ manager: CLLocationManager) {
         self.continuation.yield(.didResumeLocationUpdates)
@@ -149,14 +224,10 @@ private class LocationManagerDelegate: NSObject, CLLocationManagerDelegate {
     ) {
         self.continuation.yield(
             .monitoringDidFail(
-                region: region.map(Region.init(rawValue:)),
-                error: LocationManager.Error(error)
-            )
-        )
+                region: region.map(Region.init(rawValue:)), error: LocationManagerClient.Error(error)))
     }
     
     func locationManager(_ manager: CLLocationManager, didStartMonitoringFor region: CLRegion) {
         self.continuation.yield(.didStartMonitoring(region: Region(rawValue: region)))
     }
-    
 }
