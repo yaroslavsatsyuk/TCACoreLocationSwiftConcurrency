@@ -1,7 +1,7 @@
 import XCTest
-@testable import tca_core_location_swift_concurrency
+@testable import TCACoreLocationSwiftConcurrency
 
-final class tca_core_location_swift_concurrencyTests: XCTestCase {
+final class TCACoreLocationSwiftConcurrencyTests: XCTestCase {
     func testExample() throws {
         // This is an example of a functional test case.
         // Use XCTAssert and related functions to verify your tests produce the correct
